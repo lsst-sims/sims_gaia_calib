@@ -19,6 +19,16 @@ import os
 
 # ssh -L 51433:fatboy.phys.washington.edu:1433 gateway.astro.washington.edu
 
+def call_ulysses():
+    """
+    wrapper to call ulysses .jar file
+    """
+
+def make_response_func():
+    """
+    Declare some stars as "standards" and build a simple GAIA response function?
+    """
+
 
 # ok, let's see if we can load up a spectrum, scale it properly, and then make some GAIA spectra
 
@@ -53,11 +63,15 @@ ss.addCCMDust(a_x, b_x, ebv=catalog['ebv'][dex])
 
 # now, output this to a text file, 
 tempFile = open('temp_spectra.dat', 'w')
-good = np.where( ss.flambda > 1e-40)
+tempWave = open('tempWave.dat', 'w')
+good = np.where( (ss.flambda > 1e-40) & (ss.wavelen > 300) & (ss.wavelen < 1400))
+# XXX-might need to convert units to get flux right.
 for w, fl in zip(ss.wavelen[good], ss.flambda[good]):
-    print >>tempFile, '%f, %e' % (w, fl)
+    print >>tempFile, '%e' % (fl)
+    print >> tempWave, '%f' % w
 tempFile.close()
+tempWave.close()
 
-
+java -Dlog4j.configuration=file:/Users/yoachim/ulysses/conf/logging.properties -Dulysses.configuration=file:/Users/yoachim/ulysses/conf/ulysses.properties -jar ~/ulysses/dist/ulysses.jar -f "temp_spectra.dat" -w tempWave.dat -conversion 1 -inputIndivFile -unnormalized -o ./output
 
 
