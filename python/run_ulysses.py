@@ -15,14 +15,25 @@ from lsst.sims.photUtils import Sed, Bandpass
 from lsst.utils import getPackageDir
 from lsst.sims.utils import defaultSpecMap
 import os
-
+import subprocess
 
 # ssh -L 51433:fatboy.phys.washington.edu:1433 gateway.astro.washington.edu
 
-def call_ulysses():
+def call_ulysses(outdir='./output', wavefile='tempWave.dat',
+                 specfile='temp_spectra.dat', noise=0):
     """
     wrapper to call ulysses .jar file
     """
+    call = 'java -Dlog4j.configuration=file:/Users/yoachim/ulysses/conf/logging.properties'
+    call += ' -Dulysses.configuration=file:/Users/yoachim/ulysses/conf/ulysses.properties'
+    call += ' -jar ~/ulysses/dist/ulysses.jar -f "%s"' % specfile
+    call += ' -w %s -conversion 1 -inputIndivFile -unnormalized -o %s' % (wavefile, outdir)
+    if noise > 0
+    call += ' -n %i' % noise
+
+    subprocess.call(call, shell=True)
+
+# java -Dlog4j.configuration=file:/Users/yoachim/ulysses/conf/logging.properties -Dulysses.configuration=file:/Users/yoachim/ulysses/conf/ulysses.properties -jar ~/ulysses/dist/ulysses.jar --help
 
 def make_response_func():
     """
@@ -72,6 +83,5 @@ for w, fl in zip(ss.wavelen[good], ss.flambda[good]):
 tempFile.close()
 tempWave.close()
 
-java -Dlog4j.configuration=file:/Users/yoachim/ulysses/conf/logging.properties -Dulysses.configuration=file:/Users/yoachim/ulysses/conf/ulysses.properties -jar ~/ulysses/dist/ulysses.jar -f "temp_spectra.dat" -w tempWave.dat -conversion 1 -inputIndivFile -unnormalized -o ./output
 
 
