@@ -24,12 +24,13 @@ def call_ulysses(outdir='./output', wavefile='tempWave.dat',
     """
     wrapper to call ulysses .jar file
     """
-    call = 'java -Dlog4j.configuration=file:/Users/yoachim/ulysses/conf/logging.properties'
-    call += ' -Dulysses.configuration=file:/Users/yoachim/ulysses/conf/ulysses.properties'
-    call += ' -jar ~/ulysses/dist/ulysses.jar -f "%s"' % specfile
+    ulPath = '/Users/yoachim/ulysses/'
+    call = 'java -Dlog4j.configuration=file:%sconf/logging.properties' % ulPath
+    call += ' -Dulysses.configuration=file:%sconf/ulysses.properties' % ulPath
+    call += ' -jar %sdist/ulysses.jar -f "%s"' % (ulPath, specfile)
     call += ' -w %s -conversion 1 -inputIndivFile -unnormalized -o %s' % (wavefile, outdir)
-    if noise > 0
-    call += ' -n %i' % noise
+    if noise > 0:
+        call += ' -n %i' % noise
 
     subprocess.call(call, shell=True)
 
@@ -83,5 +84,6 @@ for w, fl in zip(ss.wavelen[good], ss.flambda[good]):
 tempFile.close()
 tempWave.close()
 
+call_ulysses()
 
 
