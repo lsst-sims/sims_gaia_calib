@@ -36,6 +36,27 @@ def call_ulysses(outdir='./output', wavefile='tempWave.dat',
 
 # java -Dlog4j.configuration=file:/Users/yoachim/ulysses/conf/logging.properties -Dulysses.configuration=file:/Users/yoachim/ulysses/conf/ulysses.properties -jar ~/ulysses/dist/ulysses.jar --help
 
+def read_ulysses(dir='output', wavefile='Ulysses_GaiaBPRP_meanSpecWavelength.txt', 
+                 specfile='Ulysses_GaiaBPRP_noiseFreeSpectra.txt'):
+    """
+    
+    """
+    with open(os.path.join(dir,wavefile)) as f:
+        lines = f.readlines()
+    BP, RP = lines[-1][:-1].split('|')
+    BP = np.fromstring(BP, sep=' ')
+    RP = np.fromstring(RP, sep=' ')
+    with open(os.path.join(dir,specfile)) as f:
+        lines = f.readlines()
+    keys = lines[-2][2:-1].replace(' ','').split('|')
+    values = lines[-1].split('|')
+    types = ['S|20', int, int]
+    types.append([float]*12)
+    spec = {}
+    for key, val, dt in zip(keys, values, types):
+        spec[key] = np.fromstring(val, sep=' ')
+
+
 def make_response_func():
     """
     Declare some stars as "standards" and build a simple GAIA response function?
