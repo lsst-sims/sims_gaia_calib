@@ -16,6 +16,7 @@ from lsst.utils import getPackageDir
 from lsst.sims.utils import defaultSpecMap
 import os
 import subprocess
+import glob
 
 # ssh -L 51433:fatboy.phys.washington.edu:1433 gateway.astro.washington.edu
 
@@ -36,8 +37,28 @@ def call_ulysses(outdir='./output', wavefile='tempWave.dat',
 
 # java -Dlog4j.configuration=file:/Users/yoachim/ulysses/conf/logging.properties -Dulysses.configuration=file:/Users/yoachim/ulysses/conf/ulysses.properties -jar ~/ulysses/dist/ulysses.jar --help
 
+
+def readSpec(specfile):
+    with open(specfile) as f:
+        lines = f.readlines()
+    keys = lines[-2][2:-1].replace(' ', '').split('|')
+
+    values = lines[-1].split('|')
+    types = [str, int, int]
+    types.extend([float]*13)
+    spec = {}
+    for i, key in enumerate(keys):
+        if i == 0:
+            spec[key] = values[i]
+        else:
+            try:
+                spec[key] = np.fromstring(values[i], sep=' ', dtype=types[i])
+            except: 
+                import pdb ; pdb.set_trace()
+    return spec
+
 def read_ulysses(dir='output', wavefile='Ulysses_GaiaBPRP_meanSpecWavelength.txt', 
-                 specfile='Ulysses_GaiaBPRP_noiseFreeSpectra.txt'):
+                 specfile='Ulysses_GaiaBPRP_noiseFreeSpectra.txt', noiseRoot='Ulysses_GaiaBPRP_noisyPhotSpec'):
     """
     
     """
@@ -46,15 +67,15 @@ def read_ulysses(dir='output', wavefile='Ulysses_GaiaBPRP_meanSpecWavelength.txt
     BP, RP = lines[-1][:-1].split('|')
     BP = np.fromstring(BP, sep=' ')
     RP = np.fromstring(RP, sep=' ')
-    with open(os.path.join(dir,specfile)) as f:
-        lines = f.readlines()
-    keys = lines[-2][2:-1].replace(' ','').split('|')
-    values = lines[-1].split('|')
-    types = ['S|20', int, int]
-    types.append([float]*12)
-    spec = {}
-    for key, val, dt in zip(keys, values, types):
-        spec[key] = np.fromstring(val, sep=' ')
+    
+    spec = readSpec(os.path.join(dir, specfile))
+
+    noiseSpecs = glob.glob(dir+'/'+noiseRoot+'*')
+    noisySpec = []
+    for filename in noiseSpecs:
+        noisySpec.append(readSpec(filename))
+
+    return {'BP_wave': BP, 'RP_wave': RP, 'noiseFreeSpec': spec, 'noisySpec': noisySpec}
 
 
 def make_response_func():
@@ -63,48 +84,52 @@ def make_response_func():
     """
 
 
-# ok, let's see if we can load up a spectrum, scale it properly, and then make some GAIA spectra
+if __name__=="__main__":
+    # ok, let's see if we can load up a spectrum, scale it properly, and then make some GAIA spectra
 
-ra = 0.  # Degrees
-dec = 0.  # Degrees
-boundLength = 1. 
-dbobj = CatalogDBObject.from_objid('allstars')
-obs_metadata = ObservationMetaData(boundType='circle',pointingRA=ra,
-                                   pointingDec=dec,boundLength=boundLength, mjd=5700)
-t = dbobj.getCatalog('ref_catalog_star', obs_metadata=obs_metadata)
+    ra = 0.  # Degrees
+    dec = 0.  # Degrees
+    boundLength = 1. 
+    dbobj = CatalogDBObject.from_objid('allstars')
+    obs_metadata = ObservationMetaData(boundType='circle',pointingRA=ra,
+                                       pointingDec=dec,boundLength=boundLength, mjd=5700)
+    t = dbobj.getCatalog('ref_catalog_star', obs_metadata=obs_metadata)
 
-constraint = 'rmag < 18 and rmag > 15'
-chunks = t.db_obj.query_columns(colnames=['magNorm', 'rmag', 'sedfilename', 'ebv', 'especid'], 
-                                obs_metadata=obs_metadata,constraint=constraint, 
-                                chunk_size=1000000)
+    constraint = 'rmag < 18 and rmag > 15'
+    chunks = t.db_obj.query_columns(colnames=['magNorm', 'rmag', 'sedfilename', 'ebv', 'especid'], 
+                                    obs_metadata=obs_metadata,constraint=constraint, 
+                                    chunk_size=1000000)
 
-for chunk in chunks:
-    catalog = chunk
+    for chunk in chunks:
+        catalog = chunk
 
-sed_dir = getPackageDir('sims_sed_library')
+    sed_dir = getPackageDir('sims_sed_library')
 
-dex = 0 # index of the star whose spectrum we are generating
-imsimBand = Bandpass()
-imsimBand.imsimBandpass()
-ss = Sed()
-sed_name = os.path.join(sed_dir, defaultSpecMap[catalog['sedfilename'][dex]])
-ss.readSED_flambda(sed_name)
-fNorm = ss.calcFluxNorm(catalog['magNorm'][dex], imsimBand)
-ss.multiplyFluxNorm(fNorm)
-a_x, b_x = ss.setupCCMab()
-ss.addCCMDust(a_x, b_x, ebv=catalog['ebv'][dex])
+    dex = 0 # index of the star whose spectrum we are generating
+    imsimBand = Bandpass()
+    imsimBand.imsimBandpass()
+    ss = Sed()
+    sed_name = os.path.join(sed_dir, defaultSpecMap[catalog['sedfilename'][dex]])
+    ss.readSED_flambda(sed_name)
+    fNorm = ss.calcFluxNorm(catalog['magNorm'][dex], imsimBand)
+    ss.multiplyFluxNorm(fNorm)
+    a_x, b_x = ss.setupCCMab()
+    ss.addCCMDust(a_x, b_x, ebv=catalog['ebv'][dex])
 
-# now, output this to a text file, 
-tempFile = open('temp_spectra.dat', 'w')
-tempWave = open('tempWave.dat', 'w')
-good = np.where( (ss.flambda > 1e-40) & (ss.wavelen > 300) & (ss.wavelen < 1400))
-# XXX-might need to convert units to get flux right.
-for w, fl in zip(ss.wavelen[good], ss.flambda[good]):
-    print >>tempFile, '%e' % (fl)
-    print >> tempWave, '%f' % w
-tempFile.close()
-tempWave.close()
+    # now, output this to a text file, 
+    tempFile = open('temp_spectra.dat', 'w')
+    tempWave = open('tempWave.dat', 'w')
+    good = np.where( (ss.flambda > 1e-40) & (ss.wavelen > 300) & (ss.wavelen < 1400))
+    # XXX-might need to convert units to get flux right.
+    for w, fl in zip(ss.wavelen[good], ss.flambda[good]):
+        print >>tempFile, '%e' % (fl)
+        print >> tempWave, '%f' % w
+    tempFile.close()
+    tempWave.close()
 
-call_ulysses()
+    call_ulysses(noise=3)
+
+    result = read_ulysses()
+
 
 
