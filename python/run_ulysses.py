@@ -1,5 +1,5 @@
 import matplotlib.pylab as plt
-from lsst.sims.catalogs.generation.db import CatalogDBObject
+from lsst.sims.catalogs.db import CatalogDBObject
 from lsst.sims.catUtils.baseCatalogModels import *
 from lsst.sims.catUtils.exampleCatalogDefinitions import *
 import numpy as np
@@ -17,6 +17,7 @@ from lsst.sims.utils import defaultSpecMap
 import os
 import subprocess
 import glob
+import copy
 
 # ssh -L 51433:fatboy.phys.washington.edu:1433 gateway.astro.washington.edu
 
@@ -78,26 +79,74 @@ def read_ulysses(dir='output', wavefile='Ulysses_GaiaBPRP_meanSpecWavelength.txt
     return {'BP_wave': BP, 'RP_wave': RP, 'noiseFreeSpec': spec, 'noisySpec': noisySpec}
 
 
-def make_response_func():
+def SED2GAIA(sed, noise=1):
+    """
+    Take an LSST Sed and observe it with Gaia
+    """
+    tempFile = open('temp_spectra.dat', 'w')
+    tempWave = open('tempWave.dat', 'w')
+    good = np.where((sed.flambda > 1e-40) & (sed.wavelen > 300) & (sed.wavelen < 1400))
+    # XXX-might need to convert units to get flux right.
+    for w, fl in zip(sed.wavelen[good], sed.flambda[good]):
+        print >>tempFile, '%e' % (fl)
+        print >> tempWave, '%f' % w
+    tempFile.close()
+    tempWave.close()
+    call_ulysses(noise=noise)
+    result = read_ulysses()
+    return result
+
+
+def make_response_func(magnorm=16., filename='starSED/wDs/bergeron_14000_85.dat_14200.gz'):
     """
     Declare some stars as "standards" and build a simple GAIA response function?
+
+    Multiply GAIA observations by response function to get spectra in flambda units.
     """
+    imsimBand = Bandpass()
+    imsimBand.imsimBandpass()
+
+    sed_dir = getPackageDir('sims_sed_library')
+    filepath = os.path.join(sed_dir, filename)
+    wd = Sed()
+    wd.readSED_flambda(filepath)
+    fNorm = wd.calcFluxNorm(magnorm, imsimBand)
+    wd.multiplyFluxNorm(fNorm)
+    red_wd = copy.copy(wd)
+    blue_wd = copy.copy(wd)
+    gaia_obs = SED2GAIA(wd)
+    red_wd.resampleSED(wavelen_match = gaia_obs['RP_wave'])
+    blue_wd.resampleSED(wavelen_match = gaia_obs['BP_wave'])
+    red_response = red_wd.flambda / gaia_obs['noisySpec'][0]['RPNoisySpec']
+    blue_response = blue_wd.flambda / gaia_obs['noisySpec'][0]['BPNoisySpec']
+
+    # XXX check the mags of the original WD and the blue and red WD. 
+
+
+    import pdb ; pdb.set_trace()
+
+    # return {'RP_response': , 'BP_response': , 'RP_wave': , 'BP_wave': }
+
 
 
 if __name__=="__main__":
     # ok, let's see if we can load up a spectrum, scale it properly, and then make some GAIA spectra
 
+    make_response_func()
+
+"""
     ra = 0.  # Degrees
     dec = 0.  # Degrees
-    boundLength = 1. 
+    boundLength = 1.
     dbobj = CatalogDBObject.from_objid('allstars')
-    obs_metadata = ObservationMetaData(boundType='circle',pointingRA=ra,
-                                       pointingDec=dec,boundLength=boundLength, mjd=5700)
+    obs_metadata = ObservationMetaData(boundType='circle', pointingRA=ra,
+                                       pointingDec=dec, boundLength=boundLength, mjd=5700)
     t = dbobj.getCatalog('ref_catalog_star', obs_metadata=obs_metadata)
 
     constraint = 'rmag < 18 and rmag > 15'
-    chunks = t.db_obj.query_columns(colnames=['magNorm', 'rmag', 'sedfilename', 'ebv', 'especid'], 
-                                    obs_metadata=obs_metadata,constraint=constraint, 
+
+    chunks = t.db_obj.query_columns(colnames=['magNorm', 'rmag', 'sedfilename', 'ebv'],
+                                    obs_metadata=obs_metadata,constraint=constraint,
                                     chunk_size=1000000)
 
     for chunk in chunks:
@@ -131,5 +180,5 @@ if __name__=="__main__":
 
     result = read_ulysses()
 
-
+"""
 
