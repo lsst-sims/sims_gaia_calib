@@ -81,6 +81,49 @@ def read_ulysses(dir='output', wavefile='Ulysses_GaiaBPRP_meanSpecWavelength.txt
     return {'BP_wave': BP, 'RP_wave': RP, 'noiseFreeSpec': spec, 'noisySpec': noisySpec}
 
 
+def ulysses2SED(dir='output', wavefile='Ulysses_GaiaBPRP_meanSpecWavelength.txt',
+                 specfile='Ulysses_GaiaBPRP_noiseFreeSpectra.txt',
+                 noiseRoot='Ulysses_GaiaBPRP_noisyPhotSpec', noisy=True, 
+                 response=None, wavelen_step=1.):
+    """
+    Read in some ulysses output and return a single SED object.
+    """
+    if noisy:
+        datakey = 'noisySpec'
+        key2 = 'NoisySpec'
+    else:
+        datakey = 'noiseFreeSpec'
+        key2 = 'NoiseFreeSpec'
+
+    if response is None:
+        response = gaia_response()
+
+    data = read_ulysses(dir=dir, wavefile=wavefile, specfile=specfile,
+                        noiseRoot=noiseRoot)
+
+    red_spec = response.apply(data[datakey][0]['RP'+key2], blue=False)
+    blue_spec = response.apply(data[datakey][0]['BP'+key2], blue=True)
+
+    red_sed = SED(wavelen=data['RP_wave'], flambda=red_spec)
+    blue_sed = SED(wavelen=data['BP_wave'], flambda=blue_spec)
+
+    wavelen_min = data['BP_wave'].min()
+    wavelen_max = data['RP_wave'].max()
+
+    # Rebin the red and blue to a common wavelength array
+    red_sed.resampleSED(wavelen_min=wavelen_min, wavelen_max=wavelen_max, wavelen_step=wavelen_step)
+    blue_sed.resampleSED(wavelen_min=wavelen_min, wavelen_max=wavelen_max, wavelen_step=wavelen_step)
+    weight = np.zeros(red_sed.wavelen.size, dtype=float)
+    weight[np.where(red_sed.flambda > 0)] += 1
+    weight[np.where(blue_sed.flambda > 0)] += 1
+
+    flambda = (red_sed.flambda + blue_sed.flambda) / weight
+
+    finalSED = SED(flambda=flambda, wavelen=red_sed.wavelen)
+    return finalSED
+
+
+
 def SED2GAIA(sed, noise=1):
     """
     Take an LSST Sed and observe it with Gaia
