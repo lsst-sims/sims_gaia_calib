@@ -104,8 +104,8 @@ def ulysses2SED(dir='output', wavefile='Ulysses_GaiaBPRP_meanSpecWavelength.txt'
     red_spec = response.apply(data[datakey][0]['RP'+key2], blue=False)
     blue_spec = response.apply(data[datakey][0]['BP'+key2], blue=True)
 
-    red_sed = SED(wavelen=data['RP_wave'], flambda=red_spec)
-    blue_sed = SED(wavelen=data['BP_wave'], flambda=blue_spec)
+    red_sed = Sed(wavelen=data['RP_wave'], flambda=red_spec)
+    blue_sed = Sed(wavelen=data['BP_wave'], flambda=blue_spec)
 
     wavelen_min = data['BP_wave'].min()
     wavelen_max = data['RP_wave'].max()
@@ -113,13 +113,19 @@ def ulysses2SED(dir='output', wavefile='Ulysses_GaiaBPRP_meanSpecWavelength.txt'
     # Rebin the red and blue to a common wavelength array
     red_sed.resampleSED(wavelen_min=wavelen_min, wavelen_max=wavelen_max, wavelen_step=wavelen_step)
     blue_sed.resampleSED(wavelen_min=wavelen_min, wavelen_max=wavelen_max, wavelen_step=wavelen_step)
+
+    # Clean up nan's from resampling
+    red_sed.flambda[np.isnan(red_sed.flambda)] = 0.
+    blue_sed.flambda[np.isnan(blue_sed.flambda)] = 0.
+
     weight = np.zeros(red_sed.wavelen.size, dtype=float)
     weight[np.where(red_sed.flambda > 0)] += 1
     weight[np.where(blue_sed.flambda > 0)] += 1
 
     flambda = (red_sed.flambda + blue_sed.flambda) / weight
+    flambda[np.where(weight == 0.)] = 0.
 
-    finalSED = SED(flambda=flambda, wavelen=red_sed.wavelen)
+    finalSED = Sed(flambda=flambda, wavelen=red_sed.wavelen)
     return finalSED
 
 
