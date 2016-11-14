@@ -82,27 +82,27 @@ def read_ulysses(dir='output', wavefile='Ulysses_GaiaBPRP_meanSpecWavelength.txt
 
 
 def ulysses2SED(dir='output', wavefile='Ulysses_GaiaBPRP_meanSpecWavelength.txt',
-                 specfile='Ulysses_GaiaBPRP_noiseFreeSpectra.txt',
-                 noiseRoot='Ulysses_GaiaBPRP_noisyPhotSpec', noisy=True, 
-                 response=None, wavelen_step=1.):
+                specfile='Ulysses_GaiaBPRP_noiseFreeSpectra.txt',
+                noiseRoot='Ulysses_GaiaBPRP_noisyPhotSpec', noisy=True,
+                response=None, wavelen_step=1.0):
     """
     Read in some ulysses output and return a single SED object.
     """
-    if noisy:
-        datakey = 'noisySpec'
-        key2 = 'NoisySpec'
-    else:
-        datakey = 'noiseFreeSpec'
-        key2 = 'NoiseFreeSpec'
-
+    data = read_ulysses(dir=dir, wavefile=wavefile, specfile=specfile,
+                        noiseRoot=noiseRoot)
     if response is None:
         response = gaia_response()
 
-    data = read_ulysses(dir=dir, wavefile=wavefile, specfile=specfile,
-                        noiseRoot=noiseRoot)
-
-    red_spec = response.apply(data[datakey][0]['RP'+key2], blue=False)
-    blue_spec = response.apply(data[datakey][0]['BP'+key2], blue=True)
+    if noisy:
+        datakey = 'noisySpec'
+        key2 = 'NoisySpec'
+        red_spec = response.apply(data[datakey][0]['RP'+key2], blue=False)
+        blue_spec = response.apply(data[datakey][0]['BP'+key2], blue=True)
+    else:
+        datakey = 'noiseFreeSpec'
+        key2 = 'NoiseFreeSpec'
+        red_spec = response.apply(data[datakey]['RP'+key2], blue=False)
+        blue_spec = response.apply(data[datakey]['BP'+key2], blue=True)
 
     red_sed = Sed(wavelen=data['RP_wave'], flambda=red_spec)
     blue_sed = Sed(wavelen=data['BP_wave'], flambda=blue_spec)
@@ -127,7 +127,6 @@ def ulysses2SED(dir='output', wavefile='Ulysses_GaiaBPRP_meanSpecWavelength.txt'
 
     finalSED = Sed(flambda=flambda, wavelen=red_sed.wavelen)
     return finalSED
-
 
 
 def SED2GAIA(sed, noise=1):
@@ -211,6 +210,15 @@ class gaia_response(object):
         result = in_spec * response
         return result
 
+class gums_catalog(object):
+    def __init__(self, gums_dir='/Users/yoachim/ulysses/gums'):
+        # read in all the gums data
+        filenames = glob.glob(gums_dir+'/*.csv')
+        
+
+    def prune(self):
+        pass
+
 
 
 if __name__=="__main__":
@@ -218,53 +226,53 @@ if __name__=="__main__":
 
     #make_response_func()
 
-    response = gaia_response()
+    # response = gaia_response()
 
-"""
-    ra = 0.  # Degrees
-    dec = 0.  # Degrees
-    boundLength = 1.
-    dbobj = CatalogDBObject.from_objid('allstars')
-    obs_metadata = ObservationMetaData(boundType='circle', pointingRA=ra,
-                                       pointingDec=dec, boundLength=boundLength, mjd=5700)
-    t = dbobj.getCatalog('ref_catalog_star', obs_metadata=obs_metadata)
+    """
+        ra = 0.  # Degrees
+        dec = 0.  # Degrees
+        boundLength = 1.
+        dbobj = CatalogDBObject.from_objid('allstars')
+        obs_metadata = ObservationMetaData(boundType='circle', pointingRA=ra,
+                                           pointingDec=dec, boundLength=boundLength, mjd=5700)
+        t = dbobj.getCatalog('ref_catalog_star', obs_metadata=obs_metadata)
 
-    constraint = 'rmag < 18 and rmag > 15'
+        constraint = 'rmag < 18 and rmag > 15'
 
-    chunks = t.db_obj.query_columns(colnames=['magNorm', 'rmag', 'sedfilename', 'ebv'],
-                                    obs_metadata=obs_metadata,constraint=constraint,
-                                    chunk_size=1000000)
+        chunks = t.db_obj.query_columns(colnames=['magNorm', 'rmag', 'sedfilename', 'ebv'],
+                                        obs_metadata=obs_metadata,constraint=constraint,
+                                        chunk_size=1000000)
 
-    for chunk in chunks:
-        catalog = chunk
+        for chunk in chunks:
+            catalog = chunk
 
-    sed_dir = getPackageDir('sims_sed_library')
+        sed_dir = getPackageDir('sims_sed_library')
 
-    dex = 0 # index of the star whose spectrum we are generating
-    imsimBand = Bandpass()
-    imsimBand.imsimBandpass()
-    ss = Sed()
-    sed_name = os.path.join(sed_dir, defaultSpecMap[catalog['sedfilename'][dex]])
-    ss.readSED_flambda(sed_name)
-    fNorm = ss.calcFluxNorm(catalog['magNorm'][dex], imsimBand)
-    ss.multiplyFluxNorm(fNorm)
-    a_x, b_x = ss.setupCCMab()
-    ss.addCCMDust(a_x, b_x, ebv=catalog['ebv'][dex])
+        dex = 0 # index of the star whose spectrum we are generating
+        imsimBand = Bandpass()
+        imsimBand.imsimBandpass()
+        ss = Sed()
+        sed_name = os.path.join(sed_dir, defaultSpecMap[catalog['sedfilename'][dex]])
+        ss.readSED_flambda(sed_name)
+        fNorm = ss.calcFluxNorm(catalog['magNorm'][dex], imsimBand)
+        ss.multiplyFluxNorm(fNorm)
+        a_x, b_x = ss.setupCCMab()
+        ss.addCCMDust(a_x, b_x, ebv=catalog['ebv'][dex])
 
-    # now, output this to a text file, 
-    tempFile = open('temp_spectra.dat', 'w')
-    tempWave = open('tempWave.dat', 'w')
-    good = np.where( (ss.flambda > 1e-40) & (ss.wavelen > 300) & (ss.wavelen < 1400))
-    # XXX-might need to convert units to get flux right.
-    for w, fl in zip(ss.wavelen[good], ss.flambda[good]):
-        print >>tempFile, '%e' % (fl)
-        print >> tempWave, '%f' % w
-    tempFile.close()
-    tempWave.close()
+        # now, output this to a text file, 
+        tempFile = open('temp_spectra.dat', 'w')
+        tempWave = open('tempWave.dat', 'w')
+        good = np.where( (ss.flambda > 1e-40) & (ss.wavelen > 300) & (ss.wavelen < 1400))
+        # XXX-might need to convert units to get flux right.
+        for w, fl in zip(ss.wavelen[good], ss.flambda[good]):
+            print >>tempFile, '%e' % (fl)
+            print >> tempWave, '%f' % w
+        tempFile.close()
+        tempWave.close()
 
-    call_ulysses(noise=3)
+        call_ulysses(noise=3)
 
-    result = read_ulysses()
+        result = read_ulysses()
 
-"""
+    """
 
