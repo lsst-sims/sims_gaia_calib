@@ -9,9 +9,7 @@ import lsst.sims.photUtils.Bandpass as Bandpass
 from lsst.sims.photUtils import calcMagError_m5, PhotometricParameters
 import lsst.sims.maf.db as db
 
-
-
-from lsst.sims.photUtils import Sed, Bandpass
+from lsst.sims.photUtils import Sed, Bandpass, cache_LSST_seds
 from lsst.utils import getPackageDir
 from lsst.sims.utils import defaultSpecMap
 import os
@@ -31,7 +29,7 @@ def call_ulysses(outdir='./output', wavefile='tempWave.dat',
     call = 'java -Dlog4j.configuration=file:%sconf/logging.properties' % ulPath
     call += ' -Dulysses.configuration=file:%sconf/ulysses.properties' % ulPath
     call += ' -jar %sdist/ulysses.jar -f "%s"' % (ulPath, specfile)
-    call += ' -w %s -conversion 1 -inputIndivFile -unnormalized -o %s' % (wavefile, outdir)
+    call += ' -w %s -conversion 1 -inputIndivFile -unnormalized -o %s > gaia.log' % (wavefile, outdir)
     if noise > 0:
         call += ' -n %i' % noise
 
@@ -214,11 +212,95 @@ class gums_catalog(object):
     def __init__(self, gums_dir='/Users/yoachim/ulysses/gums'):
         # read in all the gums data
         filenames = glob.glob(gums_dir+'/*.csv')
-        
+        names = ['sourceExtendedId', 'raj2000', 'dej2000', 'meanAbsoluteV',
+        'magG', 'magGBp', 'magGRp', 'magGRvs', 'alpha', 'delta', 'distance', 'muAlpha', 'muDelta',
+        'radialVelocity', 'colorVminusI', 'Av', 'age', 'alphaFe', 'bondAlbedo', 'eccentricity',
+        'feH', 'flagInteracting', 'geomAlbedo', 'hasPhotocenterMotion', 'host', 'inclination',
+        'logg', 'longitudeAscendingNode', 'mass', 'mbol', 'nc', 'nt', 'orbitPeriod', 'periastronArgument',
+        'periastronDate', 'phase', 'population', 'rEnvRStar', 'radius', 'semimajorAxis', 'teff',
+        'variabilityAmplitude', 'variabilityPeriod', 'variabilityPhase', 'variabilityType', 'vsini']
 
-    def prune(self):
-        pass
+        types = ['|S30']
+        types.extend([float]*(len(names)-1))
+        self.catalog = np.genfromtxt(filenames[0], skip_header=1, dtype=zip(names, types), delimiter=',')
 
+        for filename in filenames[1:]:
+            temp = np.genfromtxt(filename, skip_header=1, dtype=zip(names, types), delimiter=',')
+            self.catalog = np.append(self.catalog, temp)
+
+
+    def prune(self, verbose=True):
+        """
+        Remove the variable and multiple systems from the catalog
+        """
+        start_size = np.size(self.catalog)
+        singles = []
+        for i, starID in enumerate(self.catalog['sourceExtendedId']):
+            if (starID[-1] == 'A') | (starID[-1] == 'B') | (starID[-1] == '+'):
+                singles.append(False)
+            else:
+                singles.append(True)
+
+        singles = np.array(singles)
+        self.catalog = self.catalog[np.where(singles == True)]
+        nonvariables = np.where(self.catalog['variabilityAmplitude'] == 0)[0]
+        self.catalog = self.catalog[nonvariables]
+
+        if verbose:
+            end_size = np.size(self.catalog)
+            print 'clipped %i entries' % (start_size - end_size)
+
+
+def gen_gums_mag_cat(istart=0, nstars=100, workdir=''):
+    """
+    generate a catalog of true and observed magnitudes for stars from the gums catalog
+    """
+    # Load response function
+    response = gaia_response()
+    # Load gums catalog
+    gum_cat = gums_catalog()
+    gum_cat.prune()
+    # Cache the SEDs
+    temp = cache_LSST_seds()
+    sed = Sed()
+
+    names = ['i', 'sourceExtendedId', 'raj2000', 'dej2000', 'u', 'g', 'r', 'i', 'z', 'y',
+    'u_true', 'g_true', 'r_true', 'i_true', 'z_true', 'y_true']
+    types = [int, '|S30'].extend([float]*14)
+    result_cat = np.zeros(nstars, dtype=zip(names, types))
+    copy_keys = ['sourceExtendedId', 'raj2000', 'dej2000']
+    counter = 0
+    a_x = None
+    b_x = None
+    maxI = float(istart+nstars-1)
+    for i in np.arange(istart, istart+nstars):
+        result_cat['i'][counter] = i
+        for key in copy_keys:
+            result_cat[key][counter] = gum_cat[key[i]]
+        # Lookup the file with the closest teff, feH, and logg to gum_cat[i]
+        sed_filename = None  # XXX
+        sed.readSED_flambda(sed_filename)
+        if a_x is None:
+            a_x, b_x = sed.setupCCMab()
+        sed.addCCMDust(a_x, b_x, Av=sum_cat['Av'][i])
+        # do the magnorm here
+        sed.magnorm() # XXX
+        # Observe sed with GAIA, both with and without noise
+        # XXX
+        # XXX
+        # read in results and record values
+
+
+        counter += 1
+
+        progress = i/maxI*100
+        text = "\rprogress = %.1f%%"%progress
+        sys.stdout.write(text)
+        sys.stdout.flush()
+
+
+
+    np.savez('%i_%i_gum_mag_cat.npz' % (istart, nstars+istart), result_cat=result_cat)
 
 
 if __name__=="__main__":
