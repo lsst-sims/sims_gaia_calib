@@ -18,7 +18,7 @@ import copy
 # ssh -L 51433:fatboy.phys.washington.edu:1433 gateway.astro.washington.edu
 
 
-def call_ulysses(outdir='./output', wavefile='tempWave.dat',
+def call_ulysses(workdir='./output', wavefile='tempWave.dat',
                  specfile='temp_spectra.dat', noise=0):
     """
     wrapper to call ulysses .jar file
@@ -27,7 +27,7 @@ def call_ulysses(outdir='./output', wavefile='tempWave.dat',
     call = 'java -Dlog4j.configuration=file:%sconf/logging.properties' % ulPath
     call += ' -Dulysses.configuration=file:%sconf/ulysses.properties' % ulPath
     call += ' -jar %sdist/ulysses.jar -f "%s"' % (ulPath, specfile)
-    call += ' -w %s -conversion 1 -inputIndivFile -unnormalized -o %s > gaia.log' % (wavefile, outdir)
+    call += ' -w %s -conversion 1 -inputIndivFile -unnormalized -o %s > gaia.log' % (wavefile, workdir)
     if noise > 0:
         call += ' -n %i' % noise
 
@@ -101,8 +101,8 @@ def ulysses2SED(data=None, workdir='output', wavefile='Ulysses_GaiaBPRP_meanSpec
         red_spec = response.apply(data[datakey]['RP'+key2], blue=False)
         blue_spec = response.apply(data[datakey]['BP'+key2], blue=True)
 
-    red_sed = Sed(wavelen=data['RP_wave'], flambda=red_spec)
-    blue_sed = Sed(wavelen=data['BP_wave'], flambda=blue_spec)
+    red_sed = Sed(wavelen=data['RP_wave'], flambda=red_spec * 1e3)
+    blue_sed = Sed(wavelen=data['BP_wave'], flambda=blue_spec * 1e3)
 
     wavelen_min = data['BP_wave'].min()
     wavelen_max = data['RP_wave'].max()
@@ -115,12 +115,19 @@ def ulysses2SED(data=None, workdir='output', wavefile='Ulysses_GaiaBPRP_meanSpec
     red_sed.flambda[np.isnan(red_sed.flambda)] = 0.
     blue_sed.flambda[np.isnan(blue_sed.flambda)] = 0.
 
-    weight = np.zeros(red_sed.wavelen.size, dtype=float)
-    weight[np.where(red_sed.flambda > 0)] += 1
-    weight[np.where(blue_sed.flambda > 0)] += 1
+    # Assume Poisson stats for the noise.
+    red_weight = 1./red_sed.flambda
+    blue_weight = 1./blue_sed.flambda
 
-    flambda = (red_sed.flambda + blue_sed.flambda) / weight
-    flambda[np.where(weight == 0.)] = 0.
+    red_weight[np.where(red_sed.flambda == 0)] = 0.
+    blue_weight[np.where(blue_sed.flambda == 0)] = 0.
+
+    # weight = np.zeros(red_sed.wavelen.size, dtype=float)
+    # weight[np.where(red_sed.flambda > 0)] += 1
+    # weight[np.where(blue_sed.flambda > 0)] += 1
+
+    flambda = (red_sed.flambda*red_weight + blue_sed.flambda*blue_weight) / (red_weight + blue_weight)
+    # flambda[np.where(weight == 0.)] = 0.
 
     finalSED = Sed(flambda=flambda, wavelen=red_sed.wavelen)
     return finalSED
@@ -137,7 +144,7 @@ def SED2GAIA(sed, noise=1, workdir='output'):
     # From ULYSSES README:
     # The original input spectra fluxes are assumed to be in W~m$^{-2}$~s$^{-1}$~nm$^{-1}$
     # for Sed, flambda (ergs/cm^s/s/nm)
-    sed.flambda[good] = sed.flambda[good]/1e3  # Convert to W/m^2
+    sed.flambda[good] = sed.flambda[good] / 1e3  # Convert to W/m^2
     for w, fl in zip(sed.wavelen[good], sed.flambda[good]):
         print >>tempFile, '%e' % (fl)
         print >> tempWave, '%f' % w
@@ -149,7 +156,7 @@ def SED2GAIA(sed, noise=1, workdir='output'):
 
 
 def make_response_func(magnorm=16., filename='starSED/wDs/bergeron_14000_85.dat_14200.gz',
-                       savefile='gaia_response.npz'):
+                       savefile='gaia_response.npz', noise=1):
     """
     Declare some stars as "standards" and build a simple GAIA response function?
 
@@ -166,11 +173,16 @@ def make_response_func(magnorm=16., filename='starSED/wDs/bergeron_14000_85.dat_
     wd.multiplyFluxNorm(fNorm)
     red_wd = copy.copy(wd)
     blue_wd = copy.copy(wd)
-    gaia_obs = SED2GAIA(wd)
+    gaia_obs = SED2GAIA(wd, noise=noise)
     red_wd.resampleSED(wavelen_match = gaia_obs['RP_wave'])
     blue_wd.resampleSED(wavelen_match = gaia_obs['BP_wave'])
-    red_response = red_wd.flambda / gaia_obs['noisySpec'][0]['RPNoisySpec']
-    blue_response = blue_wd.flambda / gaia_obs['noisySpec'][0]['BPNoisySpec']
+    if noise == 1:
+        red_response = red_wd.flambda / gaia_obs['noisySpec'][0]['RPNoisySpec']
+        blue_response = blue_wd.flambda / gaia_obs['noisySpec'][0]['BPNoisySpec']
+    elif noise == 0:
+        red_response = red_wd.flambda / gaia_obs['noiseFreeSpec']['RPNoiseFreeSpec']
+        blue_response = blue_wd.flambda / gaia_obs['noiseFreeSpec']['BPNoiseFreeSpec']
+
 
     # XXX check the mags of the original WD and the blue and red WD.
 
@@ -254,12 +266,16 @@ class gums_catalog(object):
             print 'clipped %i entries' % (start_size - end_size)
 
 
-def gen_gums_mag_cat(istart=0, nstars=100, workdir=''):
+def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False):
     """
     generate a catalog of true and observed magnitudes for stars from the gums catalog
     """
     # Load response function
-    response = gaia_response()
+    if noisyResponse:
+        response = gaia_response()
+    else:
+        response = gaia_response(restore_file='gaia_response_nonoise.npz')
+        
     # Load gums catalog
     gum_cat = gums_catalog()
     gum_cat.prune()
