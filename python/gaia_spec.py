@@ -101,8 +101,8 @@ def ulysses2SED(data=None, workdir='output', wavefile='Ulysses_GaiaBPRP_meanSpec
         red_spec = response.apply(data[datakey]['RP'+key2], blue=False)
         blue_spec = response.apply(data[datakey]['BP'+key2], blue=True)
 
-    red_sed = Sed(wavelen=data['RP_wave'], flambda=red_spec * 1e3)
-    blue_sed = Sed(wavelen=data['BP_wave'], flambda=blue_spec * 1e3)
+    red_sed = Sed(wavelen=data['RP_wave'], flambda=red_spec)  # * 1e3)
+    blue_sed = Sed(wavelen=data['BP_wave'], flambda=blue_spec)  # * 1e3)
 
     wavelen_min = data['BP_wave'].min()
     wavelen_max = data['RP_wave'].max()
@@ -144,8 +144,8 @@ def SED2GAIA(sed, noise=1, workdir='output'):
     # From ULYSSES README:
     # The original input spectra fluxes are assumed to be in W~m$^{-2}$~s$^{-1}$~nm$^{-1}$
     # for Sed, flambda (ergs/cm^s/s/nm)
-    sed.flambda[good] = sed.flambda[good] / 1e3  # Convert to W/m^2
-    for w, fl in zip(sed.wavelen[good], sed.flambda[good]):
+    flambda = sed.flambda[good] / 1e3  # Convert to W/m^2
+    for w, fl in zip(sed.wavelen[good], flambda):
         print >>tempFile, '%e' % (fl)
         print >> tempWave, '%f' % w
     tempFile.close()
@@ -156,7 +156,8 @@ def SED2GAIA(sed, noise=1, workdir='output'):
 
 
 def make_response_func(magnorm=16., filename='starSED/wDs/bergeron_14000_85.dat_14200.gz',
-                       savefile='gaia_response.npz', noise=1):
+                       savefile='gaia_response.npz', noise=1, count_min=8.,
+                       bluecut=675., redcut=650):
     """
     Declare some stars as "standards" and build a simple GAIA response function?
 
@@ -179,10 +180,20 @@ def make_response_func(magnorm=16., filename='starSED/wDs/bergeron_14000_85.dat_
     if noise == 1:
         red_response = red_wd.flambda / gaia_obs['noisySpec'][0]['RPNoisySpec']
         blue_response = blue_wd.flambda / gaia_obs['noisySpec'][0]['BPNoisySpec']
+        too_low = np.where(gaia_obs['noisySpec'][0]['RPNoisySpec'] < count_min)
+        red_response[too_low] = 0
+        too_low = np.where(gaia_obs['noisySpec'][0]['BPNoisySpec'] < count_min)
+        blue_response[too_low] = 0
     elif noise == 0:
         red_response = red_wd.flambda / gaia_obs['noiseFreeSpec']['RPNoiseFreeSpec']
         blue_response = blue_wd.flambda / gaia_obs['noiseFreeSpec']['BPNoiseFreeSpec']
+        too_low = np.where(gaia_obs['noiseFreeSpec']['RPNoiseFreeSpec'] < count_min)
+        red_response[too_low] = 0
+        too_low = np.where(gaia_obs['noiseFreeSpec']['BPNoiseFreeSpec'] < count_min)
+        blue_response[too_low] = 0
 
+    blue_response[np.where(gaia_obs['BP_wave'] > bluecut)] = 0.
+    red_response[np.where(gaia_obs['RP_wave'] < redcut)] = 0.
 
     # XXX check the mags of the original WD and the blue and red WD.
 
@@ -217,7 +228,7 @@ class gaia_response(object):
             wavelen = self.red_wavelen
 
         if in_wave is not None:
-            if in_wave != wavelen:
+            if not np.array_equal(in_wave, wavelen):
                 raise ValueError('Wavelength does not match response wavlenth.')
 
         result = in_spec * response
