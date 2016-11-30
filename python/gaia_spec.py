@@ -206,6 +206,8 @@ def make_response_func(magnorm=16., filename='starSED/wDs/bergeron_14000_85.dat_
     filepath = os.path.join(sed_dir, filename)
     wd = Sed()
     wd.readSED_flambda(filepath)
+    # Let's just use a flat spectrum
+    wd.setFlatSED()
     fNorm = wd.calcFluxNorm(magnorm, imsimBand)
     wd.multiplyFluxNorm(fNorm)
     red_wd = copy.copy(wd)
@@ -313,7 +315,7 @@ class gums_catalog(object):
             print 'clipped %i entries' % (start_size - end_size)
 
 
-def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False):
+def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False, verbose=False):
     """
     generate a catalog of true and observed magnitudes for stars from the gums catalog
     """
@@ -396,10 +398,11 @@ def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False):
                 pass
             result_cat[filtername+'_true'][i] = sed.calcMag(bps[filtername])
 
-        progress = i/maxI*100
-        text = "\rprogress = %.1f%%"%progress
-        sys.stdout.write(text)
-        sys.stdout.flush()
+        if verbose:
+            progress = i/maxI*100
+            text = "\rprogress = %.1f%%"%progress
+            sys.stdout.write(text)
+            sys.stdout.flush()
     print ''
 
     np.savez('%i_%i_gum_mag_cat.npz' % (istart, nstars+istart), result_cat=result_cat)
