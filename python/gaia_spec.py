@@ -14,8 +14,44 @@ import os
 import subprocess
 import glob
 import copy
+import sys
 
 # ssh -L 51433:fatboy.phys.washington.edu:1433 gateway.astro.washington.edu
+
+
+def lsst_filters():
+    throughPath = os.path.join(getPackageDir('throughputs'), 'baseline')
+    lsstKeys = ['u', 'g', 'r', 'i', 'z', 'y']
+    bps = {}
+    for key in lsstKeys:
+        bp = np.loadtxt(os.path.join(throughPath, 'total_'+key+'.dat'),
+                        dtype=zip(['wave', 'trans'], [float]*2))
+        bpTemp = Bandpass()
+        good = np.where(bp['trans'] > 0.)
+        bpTemp.setBandpass(bp['wave'], bp['trans'], wavelen_min=bp['wave'][good].min(),
+                           wavelen_max=bp['wave'][good].max())
+        bps[key] = bpTemp
+    return bps
+
+
+def stubb_fitlers(wave_min=375., wave_max=1050):
+    """
+    Define some narrow filters that overlap LSST u and y, and are in GAIA overlap.
+    """
+    throughPath = os.path.join(getPackageDir('throughputs'), 'baseline')
+    bps = {}
+    lsstKeys = ['u', 'y']
+    bps = {}
+    for key in lsstKeys:
+        bp = np.loadtxt(os.path.join(throughPath, 'total_'+key+'.dat'),
+                        dtype=zip(['wave', 'trans'], [float]*2))
+        bpTemp = Bandpass()
+        good = np.where((bp['trans'] > 0.) & (bp['wave'] > wave_min) & (bp['wave'] < wave_max))
+        bpTemp.setBandpass(bp['wave'], bp['trans'], wavelen_min=bp['wave'][good].min(),
+                           wavelen_max=bp['wave'][good].max())
+        bps[key+'_truncated'] = bpTemp
+    return bps
+
 
 
 def call_ulysses(workdir='./output', wavefile='tempWave.dat',
@@ -151,7 +187,7 @@ def SED2GAIA(sed, noise=1, workdir='output'):
     tempFile.close()
     tempWave.close()
     call_ulysses(noise=noise, workdir=workdir)
-    result = read_ulysses()
+    result = read_ulysses(workdir=workdir)
     return result
 
 
@@ -291,6 +327,9 @@ def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False):
     gum_cat = gums_catalog()
     gum_cat.prune()
     gum_cat = gum_cat.catalog
+
+    print 'using %i stars from GAIA' % gum_cat.size
+
     sed = Sed()
 
     # Load up bandpass
@@ -308,49 +347,65 @@ def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False):
                     dtype=zip(['wave', 'trans'], [float]*2))
     lsst_i_band.setBandpass(bp['wave'], bp['trans'])
 
-    names = ['id', 'sourceExtendedId', 'raj2000', 'dej2000', 'u', 'g', 'r', 'i', 'z', 'y',
-             'u_true', 'g_true', 'r_true', 'i_true', 'z_true', 'y_true']
+    bps = lsst_filters()
+
+    bps.update(stubb_fitlers())
+
+    names = ['id', 'sourceExtendedId', 'raj2000', 'dej2000', 'u_truncated', 'u', 'g', 'r',
+             'i', 'z', 'y', 'y_truncated',
+             'u_truncated_true', 'u_true', 'g_true', 'r_true', 'i_true', 'z_true',
+             'y_true', 'y_truncated_true']
     types = [int, '|S30']
-    types.extend([float]*14)
+    types.extend([float]*(len(names)-1))
     result_cat = np.zeros(nstars, dtype=zip(names, types))
     copy_keys = ['sourceExtendedId', 'raj2000', 'dej2000']
-    counter = 0
     a_x = None
     b_x = None
-    maxI = float(istart+nstars-1)
-    for i in np.arange(istart, istart+nstars):
-        result_cat['id'][counter] = i
+    maxI = float(nstars)
+    for i, gems_index in enumerate(np.arange(istart, istart+nstars)):
+        result_cat['id'][i] = gems_index
         for key in copy_keys:
-            result_cat[key][counter] = gum_cat[key][i]
+            result_cat[key][i] = gum_cat[key][gems_index]
         # Lookup the file with the closest teff, feH, and logg to gum_cat[i]
-        sed.read_close_SED(gum_cat['teff'][i], gum_cat['feH'][i], gum_cat['logg'][i])
+        sed.read_close_SED(gum_cat['teff'][gems_index], gum_cat['feH'][gems_index],
+                           gum_cat['logg'][gems_index])
         # Let's figure out the GAIA-G to SDSS g conversion. Assume SDSS_g ~ LSST_g
         # poly fit from https://arxiv.org/pdf/1008.0815.pdf
         g_mag = sed.calcMag(lsst_g_band)
         i_mag = sed.calcMag(lsst_i_band)
         g_i = g_mag - i_mag
-        gnorm = gum_cat['magG'][i] + 0.0094 + 0.531*(g_i) + 0.0974*(g_i)**2 - 0.0052*(g_i)**3
+        gnorm = gum_cat['magG'][gems_index] + 0.0094 + 0.531*(g_i) + 0.0974*(g_i)**2 - 0.0052*(g_i)**3
         if a_x is None:
             a_x, b_x = sed.setupCCMab()
-        sed.addCCMDust(a_x, b_x, A_v=gum_cat['Av'][i])
+        sed.addCCMDust(a_x, b_x, A_v=gum_cat['Av'][gems_index])
         # do the magnorm here
         fNorm = sed.calcFluxNorm(gnorm, lsst_g_band)
         sed.multiplyFluxNorm(fNorm)
         # Observe sed with GAIA, both with and without noise
-        # XXX
-        # XXX
-        # read in results and record values
+        gaia_observed = SED2GAIA(sed, workdir=workdir)
+        observed_sed = ulysses2SED(data=gaia_observed, response=response)
+        not_nan = ~np.isnan(observed_sed.flambda)
+        # Let's interpolate out any nans
+        observed_sed.flambda = np.interp(observed_sed.wavelen, observed_sed.wavelen[not_nan],
+                                         observed_sed.flambda[not_nan])
 
-        counter += 1
+        for filtername in bps:
+            try:
+                result_cat[filtername][i] = observed_sed.calcMag(bps[filtername])
+            except:
+                pass
+            result_cat[filtername+'_true'][i] = sed.calcMag(bps[filtername])
+
         progress = i/maxI*100
         text = "\rprogress = %.1f%%"%progress
         sys.stdout.write(text)
         sys.stdout.flush()
+    print ''
 
     np.savez('%i_%i_gum_mag_cat.npz' % (istart, nstars+istart), result_cat=result_cat)
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     # ok, let's see if we can load up a spectrum, scale it properly, and then make some GAIA spectra
 
     #make_response_func()
