@@ -1,7 +1,7 @@
 import matplotlib.pylab as plt
-from lsst.sims.catalogs.db import CatalogDBObject
-from lsst.sims.catUtils.baseCatalogModels import *
-from lsst.sims.catUtils.exampleCatalogDefinitions import *
+# from lsst.sims.catalogs.db import CatalogDBObject
+# from lsst.sims.catUtils.baseCatalogModels import *
+# from lsst.sims.catUtils.exampleCatalogDefinitions import *
 import numpy as np
 from lsst.sims.utils import ObservationMetaData
 from lsst.sims.photUtils import calcMagError_m5, PhotometricParameters
