@@ -2,9 +2,9 @@ import numpy as np
 
 # Let's generate the calls to make all the catalogs
 
-nstars = 532321
+nstars = 274162
 
-points = np.linspace(0,nstars, 500)
+points = np.linspace(0, nstars, 200)
 
 outfile = open('calls.sh', 'w')
 

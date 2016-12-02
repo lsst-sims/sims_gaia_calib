@@ -116,7 +116,7 @@ def read_ulysses(workdir='output', wavefile='Ulysses_GaiaBPRP_meanSpecWavelength
 def ulysses2SED(data=None, workdir='output', wavefile='Ulysses_GaiaBPRP_meanSpecWavelength.txt',
                 specfile='Ulysses_GaiaBPRP_noiseFreeSpectra.txt',
                 noiseRoot='Ulysses_GaiaBPRP_noisyPhotSpec', noisy=True,
-                response=None, wavelen_step=1.0):
+                response=None, wavelen_step=1.0, switch=675.):
     """
     Read in some ulysses output and return a single SED object.
     """
@@ -152,11 +152,20 @@ def ulysses2SED(data=None, workdir='output', wavefile='Ulysses_GaiaBPRP_meanSpec
     blue_sed.flambda[np.isnan(blue_sed.flambda)] = 0.
 
     # Assume Poisson stats for the noise.
-    red_weight = 1./red_sed.flambda
-    blue_weight = 1./blue_sed.flambda
+    red_weight = np.ones(red_sed.flambda.size, dtype=float)  # 1./red_sed.flambda
+    blue_weight = np.ones(red_sed.flambda.size, dtype=float)  # 1./blue_sed.flambda
 
     red_weight[np.where(red_sed.flambda == 0)] = 0.
     blue_weight[np.where(blue_sed.flambda == 0)] = 0.
+
+    # red_cutoff = np.min(response.red_wavelen[np.where(response.red_response == 0.)])
+    # blue_cutoff = np.max(response.blue_wavelen[np.where(response.blue_response == 0.)])
+
+    #red_weight[np.where(red_sed.wavelen < red_cutoff+cutoff_pad)] = 0.
+    #blue_weight[np.where(blue_sed.wavelen > blue_cutoff-cutoff_pad)] = 0.
+    # Just make a simple switchover wavelength
+    red_weight[np.where(red_sed.wavelen <= switch)] = 0.
+    blue_weight[np.where(blue_sed.wavelen > switch)] = 0.
 
     # weight = np.zeros(red_sed.wavelen.size, dtype=float)
     # weight[np.where(red_sed.flambda > 0)] += 1
@@ -193,7 +202,7 @@ def SED2GAIA(sed, noise=1, workdir='output'):
 
 def make_response_func(magnorm=16., filename='starSED/wDs/bergeron_14000_85.dat_14200.gz',
                        savefile='gaia_response.npz', noise=1, count_min=8.,
-                       bluecut=675., redcut=650):
+                       bluecut=700., redcut=650):
     """
     Declare some stars as "standards" and build a simple GAIA response function?
 
@@ -293,7 +302,7 @@ class gums_catalog(object):
             self.catalog = np.append(self.catalog, temp)
 
 
-    def prune(self, verbose=True):
+    def prune(self, verbose=True, magG_max=19., magG_min=15.): #XXX change max back to 19
         """
         Remove the variable and multiple systems from the catalog
         """
@@ -310,12 +319,15 @@ class gums_catalog(object):
         nonvariables = np.where(self.catalog['variabilityAmplitude'] == 0)[0]
         self.catalog = self.catalog[nonvariables]
 
+        self.catalog = self.catalog[np.where((self.catalog['magG'] < magG_max) &
+                                             (self.catalog['magG'] > magG_min))]
+
         if verbose:
             end_size = np.size(self.catalog)
             print 'clipped %i entries' % (start_size - end_size)
 
 
-def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False, verbose=False):
+def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False, verbose=False, save=True):
     """
     generate a catalog of true and observed magnitudes for stars from the gums catalog
     """
@@ -324,7 +336,7 @@ def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False, verb
         response = gaia_response()
     else:
         response = gaia_response(restore_file='gaia_response_nonoise.npz')
-        
+
     # Load gums catalog
     gum_cat = gums_catalog()
     gum_cat.prune()
@@ -337,17 +349,6 @@ def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False, verb
     # Load up bandpass
     imsimBand = Bandpass()
     imsimBand.imsimBandpass()
-
-    lsst_g_band = Bandpass()
-    lsst_i_band = Bandpass()
-
-    throughPath = os.path.join(getPackageDir('throughputs'), 'baseline')
-    bp = np.loadtxt(os.path.join(throughPath, 'filter_'+'g'+'.dat'),
-                    dtype=zip(['wave', 'trans'], [float]*2))
-    lsst_g_band.setBandpass(bp['wave'], bp['trans'])
-    bp = np.loadtxt(os.path.join(throughPath, 'filter_'+'i'+'.dat'),
-                    dtype=zip(['wave', 'trans'], [float]*2))
-    lsst_i_band.setBandpass(bp['wave'], bp['trans'])
 
     bps = lsst_filters()
 
@@ -373,39 +374,52 @@ def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False, verb
                            gum_cat['logg'][gems_index])
         # Let's figure out the GAIA-G to SDSS g conversion. Assume SDSS_g ~ LSST_g
         # poly fit from https://arxiv.org/pdf/1008.0815.pdf
-        g_mag = sed.calcMag(lsst_g_band)
-        i_mag = sed.calcMag(lsst_i_band)
+        g_mag = sed.calcMag(bps['g'])
+        i_mag = sed.calcMag(bps['i'])
         g_i = g_mag - i_mag
         gnorm = gum_cat['magG'][gems_index] + 0.0094 + 0.531*(g_i) + 0.0974*(g_i)**2 - 0.0052*(g_i)**3
         if a_x is None:
             a_x, b_x = sed.setupCCMab()
         sed.addCCMDust(a_x, b_x, A_v=gum_cat['Av'][gems_index])
         # do the magnorm here
-        fNorm = sed.calcFluxNorm(gnorm, lsst_g_band)
+        fNorm = sed.calcFluxNorm(gnorm, bps['g'])
         sed.multiplyFluxNorm(fNorm)
         # Observe sed with GAIA, both with and without noise
-        gaia_observed = SED2GAIA(sed, workdir=workdir)
-        observed_sed = ulysses2SED(data=gaia_observed, response=response)
-        not_nan = ~np.isnan(observed_sed.flambda)
-        # Let's interpolate out any nans
-        observed_sed.flambda = np.interp(observed_sed.wavelen, observed_sed.wavelen[not_nan],
-                                         observed_sed.flambda[not_nan])
+        # Wrap in a try block so if ULYSSES fails for some reason the star just gets skipped
+        try:
+            gaia_observed = SED2GAIA(sed, workdir=workdir)
+            observed_sed = ulysses2SED(data=gaia_observed, response=response)
+            not_nan = ~np.isnan(observed_sed.flambda)
+            # Let's interpolate out any nans
+            observed_sed.flambda = np.interp(observed_sed.wavelen, observed_sed.wavelen[not_nan],
+                                             observed_sed.flambda[not_nan])
 
-        for filtername in bps:
-            try:
-                result_cat[filtername][i] = observed_sed.calcMag(bps[filtername])
-            except:
-                pass
-            result_cat[filtername+'_true'][i] = sed.calcMag(bps[filtername])
+            for filtername in bps:
+                try:
+                    result_cat[filtername][i] = observed_sed.calcMag(bps[filtername])
+                except:
+                    pass
+                result_cat[filtername+'_true'][i] = sed.calcMag(bps[filtername])
 
-        if verbose:
-            progress = i/maxI*100
-            text = "\rprogress = %.1f%%"%progress
-            sys.stdout.write(text)
-            sys.stdout.flush()
+            if verbose:
+                progress = i/maxI*100
+                text = "\rprogress = %.1f%%"%progress
+                sys.stdout.write(text)
+                sys.stdout.flush()
+        except:
+            pass
+        # Try to catch a failure example:
+        #if (result_cat['g'][i] < 18.) & (result_cat['g'][i] > 0.):
+        #    if (np.abs(result_cat['g'][i]-result_cat['g_true'][i]) > 1.5) | (np.abs(result_cat['r'][i]-result_cat['r_true'][i]) > 1.5):
+        #        import matplotlib.pylab as plt
+        #        import pdb ; pdb.set_trace()
     print ''
 
-    np.savez('%i_%i_gum_mag_cat.npz' % (istart, nstars+istart), result_cat=result_cat)
+    if save:
+        np.savez('%i_%i_gum_mag_cat.npz' % (istart, nstars+istart), result_cat=result_cat)
+    else:
+        return result_cat, sed, observed_sed
+
 
 
 if __name__ == "__main__":
