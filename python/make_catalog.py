@@ -11,4 +11,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    gen_gums_mag_cat(istart=args.start_star, nstars=args.nstars, workdir=args.workdir)
+    gen_gums_mag_cat(istart=args.start_star, nstars=args.nstars, workdir=args.workdir, verbose=True)

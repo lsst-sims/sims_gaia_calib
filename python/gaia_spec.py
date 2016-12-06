@@ -9,7 +9,7 @@ import lsst.sims.maf.db as db
 
 from lsst.sims.photUtils import Sed, Bandpass, cache_LSST_seds
 from lsst.utils import getPackageDir
-from lsst.sims.utils import defaultSpecMap
+from lsst.sims.utils import defaultSpecMap, angularSeparation, equatorialFromGalactic
 import os
 import subprocess
 import glob
@@ -302,7 +302,7 @@ class gums_catalog(object):
             self.catalog = np.append(self.catalog, temp)
 
 
-    def prune(self, verbose=True, magG_max=19., magG_min=15.): #XXX change max back to 19
+    def prune(self, verbose=True, magG_max=19., magG_min=15., poleClip=True):
         """
         Remove the variable and multiple systems from the catalog
         """
@@ -322,9 +322,17 @@ class gums_catalog(object):
         self.catalog = self.catalog[np.where((self.catalog['magG'] < magG_max) &
                                              (self.catalog['magG'] > magG_min))]
 
+        if poleClip:
+            ra_pole = np.median(self.catalog['raj2000'])
+            dec_pole = np.median(self.catalog['dej2000'])
+            dist_to_center = angularSeparation(ra_pole, dec_pole, self.catalog['raj2000'], self.catalog['dej2000'])
+            clip_dist=3.5/3.  # Degrees
+            good = np.where(dist_to_center < clip_dist)
+            self.catalog = self.catalog[good]
+
         if verbose:
             end_size = np.size(self.catalog)
-            print 'clipped %i entries' % (start_size - end_size)
+            print 'clipped %i entries. %i remain.' % (start_size - end_size, end_size)
 
 
 def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False, verbose=False, save=True):
@@ -407,12 +415,12 @@ def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False, verb
                 sys.stdout.write(text)
                 sys.stdout.flush()
         except:
-            pass
+            import pdb ; pdb.set_trace()
         # Try to catch a failure example:
-        #if (result_cat['g'][i] < 18.) & (result_cat['g'][i] > 0.):
-        #    if (np.abs(result_cat['g'][i]-result_cat['g_true'][i]) > 1.5) | (np.abs(result_cat['r'][i]-result_cat['r_true'][i]) > 1.5):
-        #        import matplotlib.pylab as plt
-        #        import pdb ; pdb.set_trace()
+        if (result_cat['g'][i] < 18.) & (result_cat['g'][i] > 0.):
+            if (np.abs(result_cat['g'][i]-result_cat['g_true'][i]) > 0.75) | (np.abs(result_cat['r'][i]-result_cat['r_true'][i]) > 0.75):
+                import matplotlib.pylab as plt
+                import pdb ; pdb.set_trace()
     print ''
 
     if save:
