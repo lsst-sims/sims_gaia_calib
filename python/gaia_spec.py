@@ -326,7 +326,7 @@ class gums_catalog(object):
             ra_pole = np.median(self.catalog['raj2000'])
             dec_pole = np.median(self.catalog['dej2000'])
             dist_to_center = angularSeparation(ra_pole, dec_pole, self.catalog['raj2000'], self.catalog['dej2000'])
-            clip_dist=3.5/3.  # Degrees
+            clip_dist=3.6/2.  # Degrees
             good = np.where(dist_to_center < clip_dist)
             self.catalog = self.catalog[good]
 
@@ -417,10 +417,10 @@ def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False, verb
         except:
             import pdb ; pdb.set_trace()
         # Try to catch a failure example:
-        if (result_cat['g'][i] < 18.) & (result_cat['g'][i] > 0.):
-            if (np.abs(result_cat['g'][i]-result_cat['g_true'][i]) > 0.75) | (np.abs(result_cat['r'][i]-result_cat['r_true'][i]) > 0.75):
-                import matplotlib.pylab as plt
-                import pdb ; pdb.set_trace()
+        #if (result_cat['g'][i] < 18.) & (result_cat['g'][i] > 0.):
+        #    if (np.abs(result_cat['g'][i]-result_cat['g_true'][i]) > 0.75) | (np.abs(result_cat['r'][i]-result_cat['r_true'][i]) > 0.75):
+        #        import matplotlib.pylab as plt
+        #        import pdb ; pdb.set_trace()
     print ''
 
     if save:
