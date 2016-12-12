@@ -189,7 +189,9 @@ def SED2GAIA(sed, noise=1, workdir='output'):
     # From ULYSSES README:
     # The original input spectra fluxes are assumed to be in W~m$^{-2}$~s$^{-1}$~nm$^{-1}$
     # for Sed, flambda (ergs/cm^s/s/nm)
-    flambda = sed.flambda[good] / 1e3  # Convert to W/m^2
+    # using -conversion 1, input should be ergs cm^{-2} s^{-1} \AA^{-1}
+    # flambda = sed.flambda[good] / 1e3  # Convert to W/m^2
+    flambda = sed.flambda[good] / 10.  # convert nm^-1 to AA^-1
     for w, fl in zip(sed.wavelen[good], flambda):
         print >>tempFile, '%e' % (fl)
         print >> tempWave, '%f' % w
@@ -302,7 +304,7 @@ class gums_catalog(object):
             self.catalog = np.append(self.catalog, temp)
 
 
-    def prune(self, verbose=True, magG_max=19., magG_min=15., poleClip=True):
+    def prune(self, verbose=True, magG_max=19.5, magG_min=15., poleClip=True):
         """
         Remove the variable and multiple systems from the catalog
         """

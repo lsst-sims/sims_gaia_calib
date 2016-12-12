@@ -13,3 +13,4 @@ make_response_func(magnorm=10., noise=0, savefile='gaia_response_nonoise.npz')
 
 #  ./make_catalog.py --start_star 0 --nstars 11027 --workdir central_raft
 #  ./make_catalog.py --start_star 0 --nstars 26187 --workdir full_field
+#  ./make_catalog.py --start_star 0 --nstars 33578 --workdir full_field
