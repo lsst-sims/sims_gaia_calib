@@ -341,11 +341,21 @@ def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False, verb
     """
     generate a catalog of true and observed magnitudes for stars from the gums catalog
     """
-    # Load response function
-    if noisyResponse:
-        response = gaia_response()
-    else:
-        response = gaia_response(restore_file='gaia_response_nonoise.npz')
+    # Load response functions
+    responses = []
+    response_temperatures = []
+    response_files = glob.glob('gaia_response_*00.npz')
+
+    for fn in response_files:
+        responses.append(gaia_response(restore_file=fn))
+        response_temperatures.append(float(fn.replace('.npz', '').split('_')[-1]))
+
+    response_temperatures = np.array(response_temperatures)
+
+    #if noisyResponse:
+    #    response = gaia_response()
+    #else:
+    #    response = gaia_response(restore_file='gaia_response_nonoise.npz')
 
     # Load gums catalog
     gum_cat = gums_catalog()
@@ -366,8 +376,10 @@ def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False, verb
 
     names = ['id', 'sourceExtendedId', 'raj2000', 'dej2000', 'u_truncated', 'u', 'g', 'r',
              'i', 'z', 'y', 'y_truncated',
+             'u_truncated_noiseless', 'u_noiseless', 'g_noiseless', 'r_noiseless',
+             'i_noiseless', 'z_noiseless', 'y_noiseless', 'y_truncated_noiseless',
              'u_truncated_true', 'u_true', 'g_true', 'r_true', 'i_true', 'z_true',
-             'y_true', 'y_truncated_true']
+             'y_true', 'y_truncated_true', 'teff', 'feH', 'logg', 'Av', 'magG']
     types = [int, '|S30']
     types.extend([float]*(len(names)-1))
     result_cat = np.zeros(nstars, dtype=zip(names, types))
@@ -382,6 +394,11 @@ def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False, verb
         # Lookup the file with the closest teff, feH, and logg to gum_cat[i]
         sed.read_close_SED(gum_cat['teff'][gems_index], gum_cat['feH'][gems_index],
                            gum_cat['logg'][gems_index])
+        result_cat['teff'][i] = gum_cat['teff'][gems_index]
+        result_cat['feH'][i] = gum_cat['feH'][gems_index]
+        result_cat['logg'][i] = gum_cat['logg'][gems_index]
+        result_cat['Av'][i] = gum_cat['Av'][gems_index]
+        result_cat['magG'] = gum_cat['magG'][gems_index]
         # Let's figure out the GAIA-G to SDSS g conversion. Assume SDSS_g ~ LSST_g
         # poly fit from https://arxiv.org/pdf/1008.0815.pdf
         g_mag = sed.calcMag(bps['g'])
@@ -396,28 +413,41 @@ def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False, verb
         sed.multiplyFluxNorm(fNorm)
         # Observe sed with GAIA, both with and without noise
         # Wrap in a try block so if ULYSSES fails for some reason the star just gets skipped
-        try:
-            gaia_observed = SED2GAIA(sed, workdir=workdir)
-            observed_sed = ulysses2SED(data=gaia_observed, response=response)
-            not_nan = ~np.isnan(observed_sed.flambda)
-            # Let's interpolate out any nans
-            observed_sed.flambda = np.interp(observed_sed.wavelen, observed_sed.wavelen[not_nan],
-                                             observed_sed.flambda[not_nan])
+        
+        gaia_observed = SED2GAIA(sed, workdir=workdir)
+        tdiff = np.abs(response_temperatures - result_cat['teff'][i])
+        tmatch = np.where(tdiff == tdiff.min())[0]
+        observed_sed = ulysses2SED(data=gaia_observed, response=responses[tmatch])
+        not_nan = ~np.isnan(observed_sed.flambda)
+        # Let's interpolate out any nans
+        observed_sed.flambda = np.interp(observed_sed.wavelen, observed_sed.wavelen[not_nan],
+                                         observed_sed.flambda[not_nan])
 
-            for filtername in bps:
-                try:
-                    result_cat[filtername][i] = observed_sed.calcMag(bps[filtername])
-                except:
-                    pass
-                result_cat[filtername+'_true'][i] = sed.calcMag(bps[filtername])
+        for filtername in bps:
+            try:
+                result_cat[filtername][i] = observed_sed.calcMag(bps[filtername])
+            except:
+                pass
+            result_cat[filtername+'_true'][i] = sed.calcMag(bps[filtername])
 
-            if verbose:
-                progress = i/maxI*100
-                text = "\rprogress = %.1f%%"%progress
-                sys.stdout.write(text)
-                sys.stdout.flush()
-        except:
-            import pdb ; pdb.set_trace()
+        # Now do it on a noiseless spectra
+        observed_sed = ulysses2SED(data=gaia_observed, response=responses[tmatch], noisy=False)
+        not_nan = ~np.isnan(observed_sed.flambda)
+        # Let's interpolate out any nans
+        observed_sed.flambda = np.interp(observed_sed.wavelen, observed_sed.wavelen[not_nan],
+                                         observed_sed.flambda[not_nan])
+        for filtername in bps:
+            try:
+                result_cat[filtername+'noiseless'][i] = observed_sed.calcMag(bps[filtername])
+            except:
+                pass
+
+        if verbose:
+            progress = i/maxI*100
+            text = "\rprogress = %.1f%%"%progress
+            sys.stdout.write(text)
+            sys.stdout.flush()
+        
         # Try to catch a failure example:
         #if (result_cat['g'][i] < 18.) & (result_cat['g'][i] > 0.):
         #    if (np.abs(result_cat['g'][i]-result_cat['g_true'][i]) > 0.75) | (np.abs(result_cat['r'][i]-result_cat['r_true'][i]) > 0.75):
