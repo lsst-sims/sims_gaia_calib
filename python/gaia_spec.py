@@ -431,6 +431,7 @@ def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False, verb
             result_cat[filtername+'_true'][i] = sed.calcMag(bps[filtername])
 
         # Now do it on a noiseless spectra
+        gaia_observed = SED2GAIA(sed, workdir=workdir, noise=0)
         observed_sed = ulysses2SED(data=gaia_observed, response=responses[tmatch], noisy=False)
         not_nan = ~np.isnan(observed_sed.flambda)
         # Let's interpolate out any nans
@@ -438,7 +439,7 @@ def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False, verb
                                          observed_sed.flambda[not_nan])
         for filtername in bps:
             try:
-                result_cat[filtername+'noiseless'][i] = observed_sed.calcMag(bps[filtername])
+                result_cat[filtername+'_noiseless'][i] = observed_sed.calcMag(bps[filtername])
             except:
                 pass
 
