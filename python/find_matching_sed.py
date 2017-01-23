@@ -1,5 +1,5 @@
 import numpy as np
-from lsst.sims.photUtils import Sed, Bandpass, cache_LSST_seds
+from lsst.sims.photUtils import Sed, Bandpass, cache_LSST_seds, read_close_Kuruz
 import os
 from lsst.utils import getPackageDir
 
@@ -38,9 +38,8 @@ def stubb_fitlers(wave_min=350., wave_max=1050):
     return bps
 
 
-sed = Sed()
 # Load up the cached spectra
-sed.read_close_SED(6000, 0., 4.4)
+sed, pd = read_close_Kuruz(6000, 0., 4.4)
 a_x, b_x = sed.setupCCMab()
 
 
