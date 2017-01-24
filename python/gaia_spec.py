@@ -7,7 +7,7 @@ from lsst.sims.utils import ObservationMetaData
 from lsst.sims.photUtils import calcMagError_m5, PhotometricParameters
 import lsst.sims.maf.db as db
 
-from lsst.sims.photUtils import Sed, Bandpass, cache_LSST_seds, read_close_Kuruz
+from lsst.sims.photUtils import Sed, Bandpass, cache_LSST_seds, read_close_Kurucz
 from lsst.utils import getPackageDir
 from lsst.sims.utils import defaultSpecMap, angularSeparation, equatorialFromGalactic
 import os
@@ -392,7 +392,7 @@ def gen_gums_mag_cat(istart=0, nstars=100, workdir='', noisyResponse=False, verb
         for key in copy_keys:
             result_cat[key][i] = gum_cat[key][gems_index]
         # Lookup the file with the closest teff, feH, and logg to gum_cat[i]
-        sed, pd = read_close_Kuruz(gum_cat['teff'][gems_index], gum_cat['feH'][gems_index],
+        sed, pd = read_close_Kurucz(gum_cat['teff'][gems_index], gum_cat['feH'][gems_index],
                                    gum_cat['logg'][gems_index])
         result_cat['teff'][i] = gum_cat['teff'][gems_index]
         result_cat['feH'][i] = gum_cat['feH'][gems_index]
