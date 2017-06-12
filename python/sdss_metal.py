@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.optimize import ridder
 
 
 class sdss_metal(object):
@@ -24,9 +25,26 @@ class sdss_metal(object):
         self.terms[8] = x**3
         self.terms[9] = y**3
 
-        result = np.sum(self.coef*self.terms) - self.feh
+        result = np.sum(self.coeff*self.terms) - self.feh
         return result
 
 
+def calc_u_g(feh, g_r, u_g_range = [0.7, 1.7]):
+    """
+    Use relation from Bond et al 2010 to compute the expected u-g color given
+    stellar metalicity and g-r color.
+    # g-r in range 0.25 to 0.58
+    """
 
+    if np.size(feh) > 1:
+        result = []
+        for metal, color in zip(feh, g_r):
+            func = sdss_metal(metal, color)
+            u_g = ridder(func, u_g_range[0], u_g_range[1])
+            result.append(u_g)
+        result = np.array(result)
+    else:
+        func = sdss_metal(feh, g_r)
+        result = ridder(func, u_g_range[0], u_g_range[1])
+    return result
 
