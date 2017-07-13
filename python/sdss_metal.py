@@ -40,11 +40,17 @@ def calc_u_g(feh, g_r, u_g_range = [0.7, 1.7]):
         result = []
         for metal, color in zip(feh, g_r):
             func = sdss_metal(metal, color)
-            u_g = ridder(func, u_g_range[0], u_g_range[1])
+            try:
+                u_g = ridder(func, u_g_range[0], u_g_range[1])
+            except:
+                u_g = np.nan
             result.append(u_g)
         result = np.array(result)
     else:
         func = sdss_metal(feh, g_r)
-        result = ridder(func, u_g_range[0], u_g_range[1])
+        try:
+            result = ridder(func, u_g_range[0], u_g_range[1])
+        except:
+            result = np.nan
     return result
 
